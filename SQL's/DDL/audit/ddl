@@ -1,0 +1,14 @@
+CREATE TABLE etl.run_audit (
+    RunId         UNIQUEIDENTIFIER NOT NULL PRIMARY KEY,
+    StartedUtc    DATETIME2(3) NOT NULL DEFAULT SYSUTCDATETIME(),
+    EndedUtc      DATETIME2(3) NULL,
+    Status        VARCHAR(20) NOT NULL DEFAULT 'RUNNING',  -- RUNNING/SUCCESS/FAILED
+    FileName      NVARCHAR(255) NOT NULL,
+    RowsBronze    BIGINT NULL,
+    RowsRejected  BIGINT NULL,
+    ErrorMessage  NVARCHAR(4000) NULL
+);
+GO
+
+
+
