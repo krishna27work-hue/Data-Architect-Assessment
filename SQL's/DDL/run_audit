@@ -1,3 +1,26 @@
+/*
+ETL RUN AUDIT (Execution Tracking / Control)
+- Purpose: Track each end-to-end ETL execution, typically one run per source file load, to support monitoring,
+  traceability, and controlled reruns.
+- Data Handling:
+  - One row is created at the start of a run with Status = 'RUNNING'.
+  - The same row is updated at completion with EndedUtc and final Status ('SUCCESS' or 'FAILED').
+  - Row count metrics capture processing outcomes (loaded vs rejected).
+- Execution / Audit Columns:
+  - RunId: unique identifier for the ETL execution; used as a foreign key across Bronze/Silver tables.
+  - FileName: identifies the source file processed in this run.
+  - StartedUtc / EndedUtc: track run duration and support SLA monitoring.
+  - Status: indicates the final outcome of the run.
+  - RowsBronze: number of rows successfully loaded into the Bronze layer.
+  - RowsRejected: number of rows rejected during validation or parsing.
+  - ErrorMessage: captures failure details for troubleshooting and root-cause analysis.
+- Usage:
+  - Referenced by downstream layers to ensure data lineage and consistent run-level traceability.
+  - Enables restartability, historical run analysis, and operational reporting on ETL health.
+*/
+
+
+------------------------------------
 
 CREATE TABLE ems.etl.run_audit (
     RunId         NVARCHAR(36) NOT NULL PRIMARY KEY,  -- stored GUID as string
