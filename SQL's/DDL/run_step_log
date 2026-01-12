@@ -1,0 +1,38 @@
+/*
+ETL STEP LOG (Silver/Gold Step-Level Tracking)
+- Purpose: Capture step-by-step execution details for each ETL run so we can monitor and troubleshoot the
+  Silver and Gold loads beyond the high-level run status in etl.run_audit.
+- Data Handling:
+  - Multiple rows can exist per RunId (one per StepName within the run).
+  - A record is inserted when a step starts (Status='STARTED') and updated at completion with EndedUtc and
+    final Status ('SUCCESS' or 'FAILED').
+  - Step counts are recorded to reconcile processing volumes between Silver load, rejects handling, and Gold load.
+- Lineage / Audit Columns:
+  - StepLogId: surrogate key for the step log record.
+  - RunId: ties the step back to the parent execution (etl.run_audit.RunId).
+  - StepName: logical step name for the run (ex: 'Load_Silver', 'Write_Silver_Rejects', 'Load_Gold').
+  - StartedUtc / EndedUtc: step duration for performance/SLA monitoring.
+  - Status: step outcome ('STARTED' / 'SUCCESS' / 'FAILED').
+  - RowsIn / RowsOut / RowsReject: operational counts for reconciliation (input read, rows loaded, rows rejected).
+  - ErrorMessage: captures step-level failure details for faster root-cause analysis.
+- Usage:
+  - Pinpoints whether a failure happened in Silver parsing/validation vs Gold publishing.
+  - Supports volume checks (Silver output + rejects) and operational reporting without relying only on SSIS logs.
+*/
+
+
+
+------------------------------------------------------
+
+CREATE TABLE ems.etl.run_step_log (
+    StepLogId   BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+    RunId       NVARCHAR(36) NOT NULL,
+    StepName    NVARCHAR(100) NOT NULL,
+    StartedUtc  DATETIME2(3) NOT NULL DEFAULT SYSUTCDATETIME(),
+    EndedUtc    DATETIME2(3) NULL,
+    Status      NVARCHAR(20) NOT NULL,           -- STARTED / SUCCESS / FAILED
+    RowsIn      BIGINT NULL,
+    RowsOut     BIGINT NULL,
+    RowsReject  BIGINT NULL,
+    ErrorMessage NVARCHAR(4000) NULL
+);
