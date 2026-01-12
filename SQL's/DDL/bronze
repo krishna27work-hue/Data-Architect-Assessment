@@ -1,3 +1,22 @@
+/*
+BRONZE LAYER (Raw / Traceability)
+- Purpose: Storing the EMS source file rows in their original form for auditability and replay.
+- Data Handling:
+  - All source fields are kept as NVARCHAR to preserve raw values exactly as received (no type casting here).
+  - No business rules or validations are applied in Bronze.
+- Lineage / Audit Columns:
+  - RunId: ties each row back to a specific SSIS execution (etl.run_audit.RunId).
+  - FileName: identifies the physical source file loaded in that run.
+  - LoadUtc: when the row landed in Bronze.
+  - SourceRowNum: row number from the source file (helps troubleshooting & trace-back).
+- Usage:
+  - Silver reads from Bronze to perform type conversions, standardization, validations, and rejects.
+  - Bronze is append-only (history of loads). Duplicate source rows can exist across runs by design.
+*/
+
+----------------------------------------------------------------------------------------------------------------
+
+
 CREATE TABLE ems.bronze.ems_raw (
     BronzeId     BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
     RunId        NVARCHAR(36) NOT NULL,              -- string GUID
