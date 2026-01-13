@@ -1,0 +1,27 @@
+/*
+ETL WATERMARK (Incremental Processing Control)
+- Purpose: This table stores the last successfully processed position for each pipeline so the ETL can run
+  incrementally instead of re-reading the entire staging/bronze dataset every time.
+- How it works:
+  - PipelineName identifies the pipeline/checkpoint (ex: 'SILVER_LAST_BRONZE_ID').
+  - LastBronzeId stores the highest BronzeId that was fully processed and committed downstream.
+  - UpdatedUtc records when the watermark was last updated.
+- Usage:
+  - At the start of the Silver load, I read the watermark and only process Bronze rows where BronzeId > LastBronzeId.
+  - After a successful load, I update LastBronzeId to the latest processed BronzeId.
+  - This makes the pipeline re-runnable and scalable for large files while avoiding duplicate processing.
+- Initialization:
+  - The seed insert initializes the watermark to 0 so the first run processes all available Bronze records.
+*/
+
+--------------------------------------------------------
+
+CREATE TABLE ems.etl.watermark (
+    PipelineName         NVARCHAR(100) NOT NULL PRIMARY KEY,
+    LastBronzeId  BIGINT        NOT NULL,
+    UpdatedUtc    DATETIME2(3)  NOT NULL DEFAULT SYSUTCDATETIME()
+);
+GO
+
+INSERT INTO ems.etl.watermark (PipelineName, LastBronzeId)
+VALUES ('SILVER_LAST_BRONZE_ID', 0);
