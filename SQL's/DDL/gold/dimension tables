@@ -1,0 +1,105 @@
+/*
+DW DIMENSIONS (Kimball Lookups / Conformed Attributes)
+- Purpose: These dimension tables hold the descriptive attributes used to analyze EMS encounters in the fact table.
+  I load dimensions first and then reference them from dw.FactEMS_Encounter using surrogate keys.
+- Common Design Pattern:
+  - Surrogate keys (IDENTITY) are used as the primary keys so the fact table stays stable even if source values change.
+  - Natural key uniqueness is enforced using UNIQUE indexes to prevent duplicate dimension members.
+  - UnknownFlag is included and I seed an 'UNKNOWN' member in each dimension so fact loads never fail when a value is missing
+    or doesn’t map cleanly (referential integrity is always maintained).
+- Dimension Notes:
+  - DimDate:
+    - Uses DateKey (yyyymmdd) as the key and stores standard calendar breakdowns (year/quarter/month/day, weekday, weekend flag).
+    - Supports joining multiple fact timestamps (incident date and unit milestone dates).
+  - DimCounty:
+    - Stores the incident county as a clean reporting attribute; unique by CountyName.
+  - DimComplaint:
+    - Stores chief complaint attributes (dispatch + anatomic location) as a combined natural key for consistent grouping.
+  - DimSymptom:
+    - Stores symptom/impression attributes (primary symptom + provider impression) for clinical-style rollups.
+  - DimProvider (SCD2-capable):
+    - Stores provider type attributes and includes EffectiveStart/EffectiveEnd/IsCurrent to support Type 2 changes when provider
+      classification changes over time (while keeping history).
+    - NK is enforced with IsCurrent to allow one current row per provider “natural key” while retaining older versions.
+  - DimDisposition / DimDestinationType:
+    - Simple lookups for ED/hospital disposition and destination category; unique by name.
+- Usage:
+  - Gold loads/upserts dimensions first, then inserts facts using the surrogate keys (falling back to UNKNOWN when needed).
+*/
+
+------------------------------------------------
+
+CREATE TABLE dw.DimDate (
+    DateKey     INT NOT NULL PRIMARY KEY,     -- yyyymmdd
+    FullDate    DATE NOT NULL,
+    [Year]      INT NOT NULL,
+    [Quarter]   INT NOT NULL,
+    [Month]     INT NOT NULL,
+    [Day]       INT NOT NULL,
+    DayOfWeek   INT NOT NULL,                 -- 1=Mon ... 7=Sun (ISO)
+    DayName     VARCHAR(28) NOT NULL,
+    MonthName   VARCHAR(28) NOT NULL,
+    IsWeekend   BIT NOT NULL
+);
+GO
+
+CREATE TABLE dw.DimCounty (
+    CountyKey    INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+    CountyName   VARCHAR(100) NOT NULL,
+    UnknownFlag  INT NOT NULL DEFAULT 0
+);
+GO
+CREATE UNIQUE INDEX UX_DimCounty_Name ON dw.DimCounty(CountyName);
+GO
+
+CREATE TABLE dw.DimComplaint (
+    ComplaintKey INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+    ChiefComplaintDispatch    VARCHAR(255) NULL,
+    ChiefComplaintAnatomicLoc VARCHAR(255) NULL,
+    UnknownFlag  INT NOT NULL DEFAULT 0
+);
+GO
+CREATE UNIQUE INDEX UX_DimComplaint_NK ON dw.DimComplaint(ChiefComplaintDispatch, ChiefComplaintAnatomicLoc);
+GO
+
+CREATE TABLE dw.DimSymptom (
+    SymptomKey INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+    PrimarySymptom            VARCHAR(255) NULL,
+    ProviderImpressionPrimary VARCHAR(255) NULL,
+    UnknownFlag  INT NOT NULL DEFAULT 0
+);
+GO
+CREATE UNIQUE INDEX UX_DimSymptom_NK ON dw.DimSymptom(PrimarySymptom, ProviderImpressionPrimary);
+GO
+
+CREATE TABLE dw.DimProvider (
+    ProviderKey INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+    ProviderTypeStructure    VARCHAR(255) NULL,
+    ProviderTypeService      VARCHAR(255) NULL,
+    ProviderTypeServiceLevel VARCHAR(255) NULL,
+    EffectiveStart DATE NOT NULL DEFAULT ('1900-01-01'),
+    EffectiveEnd   DATE NOT NULL DEFAULT ('9999-12-31'),
+    IsCurrent      BIT  NOT NULL DEFAULT (1),
+    UnknownFlag    INT  NOT NULL DEFAULT 0
+);
+GO
+CREATE UNIQUE INDEX UX_DimProvider_NK ON dw.DimProvider(ProviderTypeStructure, ProviderTypeService, ProviderTypeServiceLevel, IsCurrent);
+GO
+
+CREATE TABLE dw.DimDisposition (
+    DispositionKey INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+    DispositionName VARCHAR(255) NOT NULL,
+    UnknownFlag INT NOT NULL DEFAULT 0
+);
+GO
+CREATE UNIQUE INDEX UX_DimDisposition_Name ON dw.DimDisposition(DispositionName);
+GO
+
+CREATE TABLE dw.DimDestinationType (
+    DestinationTypeKey INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+    DestinationTypeName VARCHAR(255) NOT NULL,
+    UnknownFlag INT NOT NULL DEFAULT 0
+);
+GO
+CREATE UNIQUE INDEX UX_DimDestinationType_Name ON dw.DimDestinationType(DestinationTypeName);
+GO
