@@ -1,0 +1,71 @@
+/*
+SILVER LAYER (Clean / Standardized)
+- Purpose: This is my cleaned version of the EMS dataset. Silver takes the raw Bronze strings and converts them
+  into consistent datatypes so the data is reliable and ready for loading into the DW.
+- Data Handling:
+  - Converts core timestamps into DATETIME2 (incident + unit time milestones).
+  - Converts duration fields into INT minutes (provider-to-scene, provider-to-destination).
+  - Standardizes flags into simple Y/N style CHAR(1) fields (injury, naloxone, other medication).
+  - Creates IncidentDate as a persisted computed column for faster date filtering and DimDate joins.
+- Lineage / Traceability:
+  - RunId + FileName keep every Silver row tied back to the specific run/file that produced it (etl.run_audit).
+  - SourceRowNum preserves the original source row number so I can trace issues back to the exact raw record.
+  - LoadUtc records when the row landed in Silver.
+- Idempotency helper:
+  - RecordHash is a lightweight fingerprint of the record content to help with safe re-runs and duplicate detection.
+- Usage:
+  - Gold reads from this table to build dimensions and the encounter fact table using set-based loads.
+  - Indexes on RunId and IncidentDate support both operational debugging and reporting performance.
+*/
+
+--------------------------------------------------------------------------
+
+CREATE TABLE ems.silver.ems_clean (
+    SilverId BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+
+    RunId        NVARCHAR(36)  NOT NULL,
+    FileName     NVARCHAR(255) NOT NULL,
+    LoadUtc      DATETIME2(3)  NOT NULL DEFAULT SYSUTCDATETIME(),
+    SourceRowNum BIGINT        NOT NULL,
+
+    -- Parsed/cleaned fields
+    IncidentDttm DATETIME2(0)  NULL,
+    IncidentDate AS CAST(IncidentDttm AS date) PERSISTED,
+
+    IncidentCounty NVARCHAR(200) NULL,
+
+    ChiefComplaintDispatch    NVARCHAR(400) NULL,
+    ChiefComplaintAnatomicLoc NVARCHAR(400) NULL,
+
+    PrimarySymptom            NVARCHAR(400) NULL,
+    ProviderImpressionPrimary NVARCHAR(400) NULL,
+
+    DispositionED       NVARCHAR(200) NULL,
+    DispositionHospital NVARCHAR(200) NULL,
+    DestinationType     NVARCHAR(200) NULL,
+
+    ProviderTypeStructure     NVARCHAR(200) NULL,
+    ProviderTypeService       NVARCHAR(200) NULL,
+    ProviderTypeServiceLevel  NVARCHAR(4000) NULL,
+
+    ProviderToSceneMins       INT NULL,
+    ProviderToDestinationMins INT NULL,
+
+    UnitNotifiedByDispatchDttm DATETIME2(0) NULL,
+    UnitArrivedOnSceneDttm     DATETIME2(0) NULL,
+    UnitArrivedToPatientDttm   DATETIME2(0) NULL,
+    UnitLeftSceneDttm          DATETIME2(0) NULL,
+    PatientArrivedDestinationDttm DATETIME2(0) NULL,
+
+    InjuryFlg            CHAR(1) NULL,  -- Y/N
+    NaloxoneGivenFlg     CHAR(1) NULL,  -- Y/N
+    MedicationGivenOtherFlg CHAR(1) NULL, -- Y/N
+
+    -- lineage / idempotency helper
+    RecordHash VARCHAR(64) NULL
+);
+GO
+
+CREATE INDEX IX_silver_clean_RunId ON ems.silver.ems_clean(RunId);
+CREATE INDEX IX_silver_clean_IncidentDate ON ems.silver.ems_clean(IncidentDate);
+GO
