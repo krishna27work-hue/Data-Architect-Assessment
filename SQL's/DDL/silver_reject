@@ -1,0 +1,42 @@
+/*
+SILVER REJECTS (Data Quality / Exception Handling)
+- Purpose: This table captures records that fail Silver parsing or validation, so bad rows don’t block the load
+  and we still keep a clean dataset in ems.silver.ems_clean.
+- Data Handling:
+  - Any row that fails required type conversions, domain checks, or basic validation rules is written here instead of Silver.
+  - ErrorType classifies the failure (ex: bad datetime, invalid numeric, missing required value).
+  - ErrorMessage stores the specific reason so I can troubleshoot quickly without digging through pipeline logs.
+- Lineage / Traceability:
+  - RunId + FileName link the rejected row back to the exact run/file (etl.run_audit).
+  - SourceRowNum keeps the original row number from the source file so the issue can be traced back to the raw input.
+  - LoadUtc records when the reject was written.
+- Debug Snapshot:
+  - A small set of raw fields is stored (incident datetime, county, symptom, provider level) to speed up root-cause analysis
+    without having to re-open the original file for every issue.
+- Usage:
+  - Used for data quality reporting (reject rates by run/file), troubleshooting recurring issues, and deciding whether to fix-and-replay
+    or accept the reject based on business rules.
+*/
+
+----------------------------------------------------
+
+CREATE TABLE ems.silver.ems_reject (
+    RejectId BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+    RunId        NVARCHAR(36)  NOT NULL,
+    FileName     NVARCHAR(255) NOT NULL,
+    LoadUtc      DATETIME2(3)  NOT NULL DEFAULT SYSUTCDATETIME(),
+    SourceRowNum BIGINT        NOT NULL,
+
+    ErrorType    NVARCHAR(100) NOT NULL,
+    ErrorMessage NVARCHAR(4000) NOT NULL,
+
+    -- keep raw snapshot for debugging (optional)
+    INCIDENT_DT NVARCHAR(50) NULL,
+    INCIDENT_COUNTY NVARCHAR(200) NULL,
+    PRIMARY_SYMPTOM NVARCHAR(400) NULL,
+    PROVIDER_TYPE_SERVICE_LEVEL NVARCHAR(4000) NULL
+);
+GO
+
+CREATE INDEX IX_silver_reject_RunId ON ems.silver.ems_reject(RunId);
+GO
