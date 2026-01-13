@@ -1,0 +1,103 @@
+/*
+FACT TABLE (EMS Encounters / Kimball Star)
+- Purpose: This is the primary fact table for the EMS business process. Each row represents a single EMS encounter/event
+  at the grain of one source record (i.e., one cleaned row coming out of Silver).
+- Grain:
+  - One row per EMS incident/encounter from the source file (traceable by RunId + SourceRowNumber).
+- Keys / Relationships:
+  - Uses surrogate keys to link to conformed dimensions (County, Complaint, Symptom, Provider, Disposition, DestinationType).
+  - Stores multiple DateKeys to support analysis across different milestones (incident date, notified, arrived scene/patient,
+    left scene, arrived destination). All DateKeys reference dw.DimDate.
+  - Foreign keys enforce referential integrity so facts cannot load with invalid dimension references.
+- Measures / Flags:
+  - Stores operational measures like ProviderToSceneMins and ProviderToDestinationMins for response time analytics.
+  - Stores key indicators as simple Y/N flags (injury, naloxone administered, other medication given).
+- Lineage / Audit:
+  - RunId + FileName + SourceRowNumber keep every fact row traceable back to the exact run/file/source row.
+  - RecordHash supports idempotency and helps avoid duplicate fact inserts during reruns/reprocessing.
+- Usage:
+  - Loaded after all dimensions are populated (with UNKNOWN fallbacks when a dimension value is missing/unmapped).
+  - Indexed on RunId to support operational validation, rerun checks, and run-level troubleshooting.
+*/
+
+-----------------------------------------------------------
+
+CREATE TABLE dw.FactEMS_Encounter (
+    EncounterKey BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+
+    -- date keys
+    IncidentDateKey INT NULL,
+    UnitNotifiedDateKey INT NULL,
+    ArrivedSceneDateKey INT NULL,
+    ArrivedPatientDateKey INT NULL,
+    LeftSceneDateKey INT NULL,
+    ArrivedDestinationDateKey INT NULL,
+
+    -- dim keys
+    CountyKey INT NOT NULL,
+    ComplaintKey INT NOT NULL,
+    SymptomKey INT NOT NULL,
+    ProviderKey INT NOT NULL,
+    DispositionEDKey INT NOT NULL,
+    DispositionHospitalKey INT NOT NULL,
+    DestinationTypeKey INT NOT NULL,
+
+    -- measures/flags
+    ProviderToSceneMins INT NULL,
+    ProviderToDestinationMins INT NULL,
+    InjuryFlg CHAR(1) NULL,
+    NaloxoneGivenFlg CHAR(1) NULL,
+    MedicationGivenOtherFlg CHAR(1) NULL,
+
+    -- lineage
+    RunId NVARCHAR(36) NOT NULL,
+    FileName NVARCHAR(255) NOT NULL,
+    SourceRowNumber BIGINT NOT NULL,
+    RecordHash VARCHAR(64) NULL
+);
+GO
+
+ALTER TABLE dw.FactEMS_Encounter  WITH CHECK ADD CONSTRAINT FK_Fact_Date_Incident
+FOREIGN KEY(IncidentDateKey) REFERENCES dw.DimDate(DateKey);
+GO
+ALTER TABLE dw.FactEMS_Encounter  WITH CHECK ADD CONSTRAINT FK_Fact_Date_Notified
+FOREIGN KEY(UnitNotifiedDateKey) REFERENCES dw.DimDate(DateKey);
+GO
+ALTER TABLE dw.FactEMS_Encounter  WITH CHECK ADD CONSTRAINT FK_Fact_Date_ArrivedScene
+FOREIGN KEY(ArrivedSceneDateKey) REFERENCES dw.DimDate(DateKey);
+GO
+ALTER TABLE dw.FactEMS_Encounter  WITH CHECK ADD CONSTRAINT FK_Fact_Date_ArrivedPatient
+FOREIGN KEY(ArrivedPatientDateKey) REFERENCES dw.DimDate(DateKey);
+GO
+ALTER TABLE dw.FactEMS_Encounter  WITH CHECK ADD CONSTRAINT FK_Fact_Date_LeftScene
+FOREIGN KEY(LeftSceneDateKey) REFERENCES dw.DimDate(DateKey);
+GO
+ALTER TABLE dw.FactEMS_Encounter  WITH CHECK ADD CONSTRAINT FK_Fact_Date_ArrivedDest
+FOREIGN KEY(ArrivedDestinationDateKey) REFERENCES dw.DimDate(DateKey);
+GO
+
+ALTER TABLE dw.FactEMS_Encounter WITH CHECK ADD CONSTRAINT FK_Fact_County
+FOREIGN KEY(CountyKey) REFERENCES dw.DimCounty(CountyKey);
+GO
+ALTER TABLE dw.FactEMS_Encounter WITH CHECK ADD CONSTRAINT FK_Fact_Complaint
+FOREIGN KEY(ComplaintKey) REFERENCES dw.DimComplaint(ComplaintKey);
+GO
+ALTER TABLE dw.FactEMS_Encounter WITH CHECK ADD CONSTRAINT FK_Fact_Symptom
+FOREIGN KEY(SymptomKey) REFERENCES dw.DimSymptom(SymptomKey);
+GO
+ALTER TABLE dw.FactEMS_Encounter WITH CHECK ADD CONSTRAINT FK_Fact_Provider
+FOREIGN KEY(ProviderKey) REFERENCES dw.DimProvider(ProviderKey);
+GO
+ALTER TABLE dw.FactEMS_Encounter WITH CHECK ADD CONSTRAINT FK_Fact_DispositionED
+FOREIGN KEY(DispositionEDKey) REFERENCES dw.DimDisposition(DispositionKey);
+GO
+ALTER TABLE dw.FactEMS_Encounter WITH CHECK ADD CONSTRAINT FK_Fact_DispositionHosp
+FOREIGN KEY(DispositionHospitalKey) REFERENCES dw.DimDisposition(DispositionKey);
+GO
+ALTER TABLE dw.FactEMS_Encounter WITH CHECK ADD CONSTRAINT FK_Fact_DestinationType
+FOREIGN KEY(DestinationTypeKey) REFERENCES dw.DimDestinationType(DestinationTypeKey);
+GO
+
+CREATE INDEX IX_Fact_RunId ON dw.FactEMS_Encounter(RunId);
+GO
+
