@@ -1,0 +1,15 @@
+{
+  "sql_server": {
+    "driver": "{ODBC Driver 18 for SQL Server}",
+    "server": "localhost",
+    "database": "ems",
+    "trusted_connection": true,
+    "username": "",
+    "password": "",
+    "encrypt": "no",
+    "trust_server_certificate": "yes"
+  },
+  "run_id": "PUT-RUNID-HERE-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+  "batch_size": 50000,
+  "dry_run": false
+}
