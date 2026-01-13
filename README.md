@@ -162,6 +162,37 @@ This keeps the design modular:
 - Publish/Model (Gold)
 
 ---
+## Testing (what I validated)
+
+- **Baseline run (happy path):**
+  - Loaded the original CSV through SSIS → `bronze.ems_raw` populated and a new `RunId` was created in `etl.run_audit`.
+  - Triggered the Python pipeline (Silver + Gold) for the same `RunId` and confirmed rows landed in:
+    - `silver.ems_clean` (valid rows)
+    - `silver.ems_reject` (only if validation fails)
+    - `dw` dimensions + `dw.FactEMS_Encounter`
+
+- **Re-run safety / idempotency check:**
+  - Re-ran **the same CSV again** (new SSIS run).
+  - Result:
+    - **Bronze appended** (expected: raw history is append-only).
+    - **Silver and Gold did NOT insert duplicates**.
+  - This confirmed the dedupe behavior using **`RecordHash`**, so the same logical record doesn’t get re-loaded across reruns / different RunIds.
+
+- **Incremental / delta load check:**
+  - Created a second CSV by copying a subset of rows from the original file and modifying a few values (to simulate “new/changed” incoming data).
+  - Ran SSIS with the new file, then triggered Python.
+  - Result:
+    - Only the “new/changed” rows were inserted into `silver.ems_clean` and published into the DW.
+    - Existing logical rows were skipped (no duplicates), and dimensions/fact remained consistent.
+
+- **Operational verification:**
+  - Verified row counts and step outcomes in:
+    - `etl.run_audit` (run-level start/end/status)
+    - `etl.run_step_log` (Silver/Gold step status + counts)
+  - Spot-checked that fact foreign keys resolve correctly (missing attributes map to seeded `UNKNOWN` dimension members instead of failing FK constraints).
+
+These checks gave me confidence that the pipeline is **rerunnable**, **safe for incremental loads**, and **doesn’t duplicate facts** even when Bronze continues to append raw history.
+
 
 ## Assumptions / Design Notes
 - **Target platform:** SQL Server (tables + set-based transformations).
