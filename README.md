@@ -3,9 +3,11 @@
 # EMS End-to-End ETL (SSIS + SQL Server + Python) — Medallion + Kimball DW
 
 This project is an end-to-end ETL pipeline for an EMS (Emergency Medical Services) CSV dataset.  
-It’s built like a production pipeline: **parameterized, modular, restart-safe, and traceable**.
+It’s built like a production pipeline: **parameterized, modular, restart-safe, and traceable
+The pipeline ingests raw files, preserves traceability, applies data quality + transformations, and publishes a Kimball-style dimensional warehouse that’s rerunnable and scalable.
 
-At a high level:
+**Tech stack**
+- **SQL Server** (staging + Silver + DW)
 - **SSIS** handles ingestion of raw CSV → **Bronze** (staging / traceability)
 - **Python + set-based SQL** handles **Silver** (clean + validate) and **Gold** (Kimball dimensional model)
 
@@ -38,9 +40,14 @@ At a high level:
   - Trimming/normalization (`LTRIM/RTRIM`, null-if-blank)
   - Domain validation for flags (Y/N normalization)
   - Reject routing with `ErrorType` + `ErrorMessage`
+  - Required field checks (ex: missing/invalid incident datetime, missing county)
 - Idempotency / reruns:
   - Incremental processing using `etl.watermark.LastBronzeId` (only new Bronze rows)
   - Dedupe via `RecordHash` (SHA2_256) to prevent duplicates across reruns / different RunIds
+- Derived fields:
+  - `IncidentDate` persisted from `IncidentDttm`
+  - `RecordHash` computed as SHA2_256 fingerprint of normalized content (see Idempotency)
+
 
 **Ownership:** Python runs Silver logic in batches (default **50k**) and logs step results.
 
@@ -77,8 +84,40 @@ At a high level:
 - If present, `dw.ems_daily_summary` is populated per `RunId` (daily county-level counts + simple KPIs)
 
 ---
+## 4) Dimensional Modeling Decisions (Kimball)
 
-## Logging, Monitoring, and Error Handling
+### Surrogate keys + unknown members
+- Each dimension uses a surrogate key (IDENTITY)
+- Dimensions include `UnknownFlag`
+- UNKNOWN rows are **seeded** once and preserved (UnknownFlag=1)
+- Fact load uses `ISNULL(dimKey, UnknownKey)` so referential integrity never breaks
+
+### SCD approach (Type 1 vs Type 2)
+- Most dimensions are treated as **Type 1 (insert-only / no updates)** because:
+  - dataset does not provide a stable natural key or effective-dated history for changes
+  - the goal is to publish clean reporting dimensions quickly for the assessment
+- `dw.DimProvider` is **structured to support SCD2** (`EffectiveStart`, `EffectiveEnd`, `IsCurrent`)
+  - current implementation loads “current” values only (Type 1 behavior)
+  - SCD2 can be enabled later if change capture is introduced
+
+---
+## 5) Idempotency & Incremental Strategy (Production-minded)
+
+### No business key provided → RecordHash strategy
+The source CSV does not include a stable encounter/business ID.  
+To support reruns and avoid duplicate facts, I used:
+- `RecordHash` = SHA2_256 of a normalized concatenation of key attributes
+- Silver and Gold both use `RecordHash` to avoid re-inserting the same logical row
+
+### Incremental Silver loads (Watermark)
+- `etl.watermark.LastBronzeId` tracks last processed `BronzeId`
+- Silver reads Bronze in batches using `TOP (@batch_size)` and `BronzeId > LastBronzeId`
+- After each batch, watermark is advanced safely
+
+This pattern scales well for large files and supports restartability.
+
+
+## 6) Logging, Monitoring, and Error Handling
 
 ### Run-level logging
 - `ems.etl.run_audit`
@@ -101,21 +140,26 @@ This makes it easy to answer:
 
 ---
 
-## Large-Data Best Practices Used
+## 7) Large-Data Best Practices Used
 Even though the sample file is small, the design assumes scale:
 - **Batching** in Silver using watermark + `TOP (@batch_size)`
-- **Set-based inserts** into dims and fact (avoid row-by-row loops)
+- **Set-based inserts** into dims and fact (no row-by-row loops)
 - **Indexes for operational queries** (ex: RunId lookups)
 - Incremental pattern via watermark table for efficient future runs
 
 ---
 
-## Configuration / Parameterization
+## 8) Configuration / Parameterization
 The pipeline is designed to be configurable without code changes:
 - SSIS parameters / variables control:
   - file path, file name, connection, RunId generation, etc.
 - Python CLI parameters control:
   - connection string, `run-id`, `batch-size`, run modes (`--silver-only`, `--gold-only`, `--full-refresh`)
+
+This keeps the design modular:
+- Extract/Stage (SSIS)
+- Transform/Clean (Silver)
+- Publish/Model (Gold)
 
 ---
 
@@ -128,6 +172,19 @@ The pipeline is designed to be configurable without code changes:
   - `dw.DimProvider` is structured with `EffectiveStart/EffectiveEnd/IsCurrent` to support **SCD2** if required later.
 - **Unknown members:** dims are seeded with `UNKNOWN` (UnknownFlag=1) so fact loads don’t fail when a dimension attribute is missing/blank.
 - **Incremental pattern:** Silver uses `etl.watermark.LastBronzeId` to process only new rows from Bronze.
+- **Operational controls**
+  - Add retries around transient SQL failures and short backoff for connectivity issues.
+
+- **Bigger compute (Spark / distributed processing)**
+  - If Bronze grows to tens/hundreds of GB per day (or we start getting many files per day), the Silver step is the first place I’d move to **Spark**.
+  - Practical approach:
+    - Land raw files in **S3 (or ADLS)**, read with Spark (CSV → DataFrame), apply cleaning/standardization rules, and write Silver as **Parquet/Delta**.
+    - Keep the same medallion layout: `bronze/` (raw), `silver/` (clean), `gold/` (curated).
+    - Use Spark to generate the same `RecordHash` and reject outputs (bad rows → `silver_reject/`).
+  - Why Spark helps:
+    - Handles wide CSV + large volumes without single-machine memory limits
+    - Parallelizes expensive operations (parsing datetimes, normalizing text, generating hashes)
+    - More efficient storage formats (Parquet/Delta) reduce downstream scan costs
 
 ---
 
@@ -154,13 +211,5 @@ This keeps ingestion operationally strong:
 
 ---
 
-## How to Run (High Level)
-
-### Step 1 — Ingest to Bronze (SSIS)
-- Run the SSIS package to load CSV into `ems.bronze.ems_raw`
-- SSIS also inserts a row into `ems.etl.run_audit` and generates the `RunId`
-
-### Step 2 — Silver + Gold (Python)
-Install deps:
-```bash
-pip install -r requirements.txt
+Thank You,
+Krishna Rao Korukanti
