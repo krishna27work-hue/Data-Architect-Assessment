@@ -1,0 +1,37 @@
+/*
+GOLD DAILY SUMMARY (Reporting-Friendly Aggregates)
+- Purpose: This table stores a lightweight daily rollup from the detailed DW/Gold load so dashboards can read
+  daily metrics without scanning the full fact table every time.
+- Data Handling:
+  - One row per (IncidentDate, IncidentCounty) for a given RunId.
+  - TotalIncidents = total encounters for that date/county.
+  - InjuryYes and NaloxoneYes = counts of encounters where the corresponding flag = 'Y'.
+  - Loaded as part of the Gold step after Silver + DW loads succeed.
+- Lineage / Traceability:
+  - RunId ties the summary back to the ETL execution (etl.run_audit.RunId).
+  - LoadUtc captures when the summary row was produced.
+- Usage:
+  - Used directly by BI tools for trend reporting (daily volume, injury/naloxone counts) with fast query performance.
+  - Can be reconciled back to the encounter fact totals for validation when needed.
+*/
+-----------------------------------------
+
+CREATE TABLE ems.dw.ems_daily_summary (
+    GoldId         BIGINT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+
+    RunId          NVARCHAR(36)  NOT NULL,
+    LoadUtc        DATETIME2(3)  NOT NULL DEFAULT SYSUTCDATETIME(),
+
+    IncidentDate   DATE          NOT NULL,
+    IncidentCounty NVARCHAR(200) NOT NULL,
+
+    TotalIncidents BIGINT        NOT NULL,
+    InjuryYes      BIGINT        NOT NULL,
+    NaloxoneYes    BIGINT        NOT NULL
+);
+GO
+
+CREATE INDEX IX_daily_summary_RunId ON ems.dw.ems_daily_summary(RunId);
+CREATE INDEX IX_daily_summary_IncidentDate ON ems.dw.ems_daily_summary(IncidentDate);
+CREATE INDEX IX_daily_summary_DateCounty ON ems.dw.ems_daily_summary(IncidentDate, IncidentCounty);
+GO
