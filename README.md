@@ -164,7 +164,7 @@ This keeps the design modular:
 ---
 ## Testing (what I validated)
 
-- **Baseline run (happy path):**
+- **Baseline run:**
   - Loaded the original CSV through SSIS → `bronze.ems_raw` populated and a new `RunId` was created in `etl.run_audit`.
   - Triggered the Python pipeline (Silver + Gold) for the same `RunId` and confirmed rows landed in:
     - `silver.ems_clean` (valid rows)
