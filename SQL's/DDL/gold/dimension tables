@@ -103,3 +103,48 @@ CREATE TABLE dw.DimDestinationType (
 GO
 CREATE UNIQUE INDEX UX_DimDestinationType_Name ON dw.DimDestinationType(DestinationTypeName);
 GO
+
+--------------------------------------------------------------------------
+--------------------------------------------------------------------------
+
+/*
+UNKNOWN MEMBER SEEDING (Default Dimension Rows)
+- Purpose: I seed an 'UNKNOWN' member in each dimension so the fact load never fails when a source value is missing,
+  blank, or doesn’t map cleanly to a dimension record.
+- Why this is needed:
+  - The fact table enforces foreign keys to all dimensions. Without a default member, any null/unmapped value would break
+    referential integrity and fail the load.
+- How it works:
+  - Each dimension includes an UnknownFlag column.
+  - I insert one row per dimension with UnknownFlag = 1 (only if it doesn’t already exist).
+  - During fact loading, if a dimension lookup doesn’t find a match, the ETL falls back to the UNKNOWN surrogate key.
+- Usage:
+  - This block is executed after dimension tables are created (and indexed) and before loading facts.
+  - Ensures robust, production-friendly loading while still keeping the original issue visible via rejects/logging.
+*/
+
+------------------------------------
+
+IF NOT EXISTS (SELECT 1 FROM dw.DimCounty WHERE UnknownFlag=1)
+    INSERT INTO dw.DimCounty(CountyName, UnknownFlag) VALUES ('UNKNOWN', 1);
+
+IF NOT EXISTS (SELECT 1 FROM dw.DimDisposition WHERE UnknownFlag=1)
+    INSERT INTO dw.DimDisposition(DispositionName, UnknownFlag) VALUES ('UNKNOWN', 1);
+
+IF NOT EXISTS (SELECT 1 FROM dw.DimDestinationType WHERE UnknownFlag=1)
+    INSERT INTO dw.DimDestinationType(DestinationTypeName, UnknownFlag) VALUES ('UNKNOWN', 1);
+
+IF NOT EXISTS (SELECT 1 FROM dw.DimComplaint WHERE UnknownFlag=1)
+    INSERT INTO dw.DimComplaint(ChiefComplaintDispatch, ChiefComplaintAnatomicLoc, UnknownFlag) VALUES ('UNKNOWN', 'UNKNOWN', 1);
+
+IF NOT EXISTS (SELECT 1 FROM dw.DimSymptom WHERE UnknownFlag=1)
+    INSERT INTO dw.DimSymptom(PrimarySymptom, ProviderImpressionPrimary, UnknownFlag) VALUES ('UNKNOWN', 'UNKNOWN', 1);
+
+IF NOT EXISTS (SELECT 1 FROM dw.DimProvider WHERE UnknownFlag=1) --- SCD 2
+    INSERT INTO dw.DimProvider(
+        ProviderTypeStructure, ProviderTypeService, ProviderTypeServiceLevel,
+        EffectiveStart, EffectiveEnd, IsCurrent, UnknownFlag
+    )
+    VALUES ('UNKNOWN','UNKNOWN','UNKNOWN','1900-01-01','9999-12-31',1,1);
+GO
+
